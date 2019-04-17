@@ -1,84 +1,89 @@
-from __future__ import absolute_import, division, print_function
+from __future__ import absolute_import, division, print_function, unicode_literals
 import tensorflow as tf
-from tensorflow import keras
+from tensorflow import keras 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
+from tensorflow import feature_column
+from tensorflow.keras import layers
+import seaborn as sns
+from sklearn.model_selection import train_test_split
 import time
-import tempfile
 import os
-import utils
+print(tf.__version__)
 
-print("TensorFlow version: {}".format(tf.__version__))
-print("Eager execution: {}".format(tf.executing_eagerly()))
-train_dataset_fp='iris.csv'
-column_names = ['sepal_length', 'sepal_width', 'petal_length', 'petal_width', 'species']
-feature_names = column_names[:-1]
-label_name = column_names[-1]
-print("Features: {}".format(feature_names))
-print("Label: {}".format(label_name))
-class_names = ['Iris setosa', 'Iris versicolor', 'Iris virginica']
-batch_size = 32
-train_dataset = tf.data.experimental.make_csv_dataset(
-    train_dataset_fp,
-    batch_size, 
-    column_names=column_names,
-    label_name=label_name,
-    num_epochs=1)
-"""
-features, labels = next(iter(train_dataset))
-plt.scatter(features['petal_length'].numpy(),
-            features['sepal_length'].numpy(),
-            c=labels.numpy(),
-            cmap='viridis')
-plt.xlabel("Petal length")
-plt.ylabel("Sepal length")
+fashion_mnist = keras.datasets.fashion_mnist
+(train_images, train_labels), (test_images,
+                               test_labels) = fashion_mnist.load_data()
+class_names = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat', 
+               'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
+plt.figure()
+plt.imshow(train_images[0])
+plt.colorbar()
+plt.grid(False)
 plt.show()
-"""
-def pack_features_vector(features, labels):
-    features = tf.stack(list(features.values()), axis=1)
-    return features, labels
-train_dataset = train_dataset.map(pack_features_vector)
-features, labels = next(iter(train_dataset))
-model = tf.keras.Sequential([
-    tf.keras.layers.Dense(10, activation=tf.nn.relu, input_shape=(4,)),
-    tf.keras.layers.Dense(10, activation=tf.nn.relu),
-    tf.keras.layers.Dense(3)
+train_images = train_images / 255.0
+test_images = test_images / 255.0
+plt.figure(figsize=(10, 10))
+for i in range(25):
+    plt.subplot(5, 5, i+1)
+    plt.xticks([])
+    plt.yticks([])
+    plt.grid(False)
+    plt.imshow(train_images[i], cmap=plt.cm.binary)
+    plt.xlabel(class_names[train_labels[i]])
+plt.show()
+model = keras.Sequential([
+    keras.layers.Flatten(input_shape=(28, 28)),
+    keras.layers.Dense(128, activation='relu'),
+    keras.layers.Dense(10, activation='softmax')
 ])
-def loss(model, x, y):
-    y_ = model(x)
-    return tf.compat.v1.losses.sparse_softmax_cross_entropy(labels=y, logits=y_)
-def grad(model, inputs, targets):
-    with tf.GradientTape() as tape:
-        loss_value = loss(model, inputs, targets)
-    return loss_value, tape.gradient(loss_value, model.trainable_variables)
-optimizer = tf.compat.v1.train.GradientDescentOptimizer(learning_rate=0.01)
-global_step = tf.Variable(0)
-loss_value, grads = grad(model, features, labels)
-print("Step: {}, Initial Loss: {}".format(global_step.numpy(),loss_value.numpy()))
-optimizer.apply_gradients(zip(grads, model.trainable_variables), global_step)
-print("Step: {}, Loss: {}".format(global_step.numpy(),loss(model, features, labels).numpy()))
-train_loss_results = []
-train_accuracy_results = []
-num_epochs = 201
-for epoch in range(num_epochs):
-    epoch_loss_avg = tf.metrics.Mean()
-    epoch_accuracy = tf.metrics.Accuracy()
-    for x, y in train_dataset:
-        loss_value, grads = grad(model, x, y)
-        optimizer.apply_gradients(zip(grads, model.trainable_variables),global_step)
-        epoch_loss_avg(loss_value)
-        epoch_accuracy(tf.argmax(model(x), axis=1, output_type=tf.int32), y)
-    train_loss_results.append(epoch_loss_avg.result())
-    train_accuracy_results.append(epoch_accuracy.result())
-    if epoch % 50 == 0:
-        print("Epoch {:03d}: Loss: {:.3f}, Accuracy: {:.3%}".format(epoch,
-                                                                    epoch_loss_avg.result(),
-                                                                    epoch_accuracy.result()))
-fig, axes = plt.subplots(2, sharex=True, figsize=(12, 8))
-fig.suptitle('Training Metrics')
-axes[0].set_ylabel("Loss", fontsize=14)
-axes[0].plot(train_loss_results)
-axes[1].set_ylabel("Accuracy", fontsize=14)
-axes[1].set_xlabel("Epoch", fontsize=14)
-axes[1].plot(train_accuracy_results)
+model.compile(optimizer='adam',
+              loss='sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+model.fit(train_images, train_labels, epochs=5,callbacks=[tf.keras.callbacks.TensorBoard('./logs')])
+test_loss, test_acc = model.evaluate(test_images, test_labels)
+print('\nTest accuracy:', test_acc)
+predictions = model.predict(test_images)
+def plot_image(i, predictions_array, true_label, img):
+    predictions_array, true_label, img = predictions_array[i], true_label[i], img[i]
+    plt.grid(False)
+    plt.xticks([])
+    plt.yticks([])
+    plt.imshow(img, cmap=plt.cm.binary)
+    predicted_label = np.argmax(predictions_array)
+    if predicted_label == true_label:
+        color = 'blue'
+    else:
+        color = 'red'
+    plt.xlabel("{} {:2.0f}% ({})".format(class_names[predicted_label],
+                                        100*np.max(predictions_array),
+                                        class_names[true_label]),
+                color=color)
+def plot_value_array(i, predictions_array, true_label):
+    predictions_array, true_label = predictions_array[i], true_label[i]
+    plt.grid(False)
+    plt.xticks([])
+    plt.yticks([])
+    thisplot = plt.bar(range(10), predictions_array, color="#777777")
+    plt.ylim([0, 1])
+    predicted_label = np.argmax(predictions_array)
+    thisplot[predicted_label].set_color('red')
+    thisplot[true_label].set_color('blue')
+num_rows = 5
+num_cols = 3
+num_images = num_rows*num_cols
+plt.figure(figsize=(2*2*num_cols, 2*num_rows))
+for i in range(num_images):
+    plt.subplot(num_rows, 2*num_cols, 2*i+1)
+    plot_image(i, predictions, test_labels, test_images)
+    plt.subplot(num_rows, 2*num_cols, 2*i+2)
+    plot_value_array(i, predictions, test_labels)
 plt.show()
+img = test_images[0]
+img = (np.expand_dims(img,0))
+predictions_single = model.predict(img)
+print(predictions_single)
+plot_value_array(0, predictions_single, test_labels)
+_ = plt.xticks(range(10), class_names, rotation=45)
+print(np.argmax(predictions_single[0]))
